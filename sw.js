@@ -11,17 +11,17 @@ const ASSETS_TO_CACHE = [
   "/config.js",
   "/config-dashboard.js",
   "/config-login.js",
-  "pages/admin.html",
-  "pages/biblioteca.html",
-  "pages/chat.html",
-  "pages/dashboard.html",
-  "pages/encuestas.html",
-  "pages/llamadas.html",
-  "pages/login.html",
-  "pages/perfil.html",
-  "pages/upload.html",
-  "/icons/icon-192.png",
-  "/icons/icon-512.png",
+  "/pages/admin.html",
+  "/pages/biblioteca.html",
+  "/pages/chat.html",
+  "/pages/dashboard.html",
+  "/encuestas.html",
+  "/pages/llamadas.html",
+  "/pages/login.html",
+  "/pages/perfil.html",
+  "/pages/upload.html",
+  "//icons/intranet-192.png",
+  "/icons/intranet-512.png",
 
 ];
 
@@ -69,8 +69,8 @@ self.addEventListener("push", (event) => {
   event.waitUntil(
     self.registration.showNotification(data.title || "IntraNet", {
       body: data.body || "Nueva notificación",
-      icon: "icons/icon-192.png",
-      badge: "icons/icon-192.png",
+      icon: "icons/intranet-192.png",
+      badge: "icons/intranet-192.png",
     })
   );
 });
