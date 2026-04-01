@@ -7,7 +7,8 @@
 <link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
 <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
 <link rel="stylesheet" href="../style.css">
-</head>
+<link rel="manifest" href="/manifest.json">
+    </head>
 <body>
 <div class="app-wrap">
   <nav class="app-nav" id="appNav"></nav>
@@ -138,6 +139,14 @@
     </div>
   </div>`;
 })();
+</script>
+<script>
+// Registrar SW
+if ('serviceWorker' in navigator) {
+ navigator.serviceWorker.register('/sw.js')
+ .then(() => console.log('SW registrado'))
+ .catch(err => console.log('Error SW:', err));
+ }
 </script>
 </body>
 </html>
