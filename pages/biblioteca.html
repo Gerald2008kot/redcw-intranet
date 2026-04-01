@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="es" id="htmlRoot">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>IntraNet RedCW — Biblioteca</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="app-wrap">
+  <nav class="app-nav" id="appNav"></nav>
+  <main id="app" style="flex:1;padding:1.4rem 0">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:200px;font-size:1.5rem;color:var(--accent)">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+    </div>
+  </main>
+</div>
+<div id="toasts"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="../config.js"></script>
+<script>
+'use strict';
+let _perfil;
+
+(async () => {
+  const ctx = await requireAuth();
+  if (!ctx) return;
+  _perfil = ctx.perfil;
+  await renderNav(_perfil, 'biblioteca');
+  await cargar();
+})();
+
+async function cargar() {
+  const p    = new URLSearchParams(location.search);
+  const carp = p.get('carpeta') || '';
+  const bus  = p.get('buscar')  || '';
+
+  let q = sb.from('archivos').select('*,perfiles(nombre,apellido)').eq('activo',true).order('created_at',{ascending:false});
+  if (carp) q = q.eq('carpeta', carp);
+  if (bus)  q = q.ilike('titulo', `%${bus}%`);
+  const { data: arch } = await q.limit(150);
+
+  const { data: todos } = await sb.from('archivos').select('carpeta').eq('activo',true);
+  const cnt = {};
+  (todos||[]).forEach(r => cnt[r.carpeta] = (cnt[r.carpeta]||0)+1);
+  const total = Object.values(cnt).reduce((a,b)=>a+b,0);
+
+  const tabs = [
+    ['','fa-layer-group','Todos',total],
+    ['imagenes','fa-image','Imágenes',cnt.imagenes||0],
+    ['musica','fa-music','Música',cnt.musica||0],
+    ['videos','fa-video','Videos',cnt.videos||0],
+    ['documentos','fa-file-lines','Documentos',cnt.documentos||0],
+    ['comprimidos','fa-file-zipper','Comprimidos',cnt.comprimidos||0],
+    ['otros','fa-folder','Otros',cnt.otros||0],
+  ];
+
+  const urlTab = v => `${PAGES.biblioteca}${v?'?carpeta='+v:''}`;
+
+  document.getElementById('app').innerHTML = `
+  <div class="ctn px-3 fade-in">
+    <div class="d-flex ai-center jc-between mb-4 flex-wrap gap-2">
+      <h4 class="fw-700 mb-0"><i class="fa-solid fa-folder-open me-2 text-accent"></i>Biblioteca</h4>
+      ${CAN_UPLOAD.includes(_perfil.rol)?`<a href="${PAGES.upload}" class="btn btn-intra btn-sm"><i class="fa-solid fa-upload me-1"></i>Subir</a>`:''}
+    </div>
+    <div class="ctabs">
+      ${tabs.map(([v,ico,l,n])=>`<a href="${urlTab(v)}" class="ctab ${carp===v?'on':''}"><i class="fa-solid ${ico} me-1"></i>${l} <span class="ctab-n">${n}</span></a>`).join('')}
+    </div>
+    <div class="filter-bar mb-3">
+      <div class="d-flex gap-2">
+        <input id="bSearch" type="text" class="form-control" placeholder="Buscar por título..." value="${esc(bus)}">
+        <button class="btn btn-intra px-3" onclick="buscar()"><i class="fa-solid fa-search"></i></button>
+      </div>
+    </div>
+    <div class="intra-card">
+      <div class="table-responsive">
+        <table class="intra-table">
+          <thead><tr><th></th><th>Título</th><th>Tipo</th><th>Tamaño</th><th>Subido por</th><th>Fecha</th><th>Acciones</th></tr></thead>
+          <tbody>
+          ${(arch||[]).length?(arch||[]).map(f=>`<tr>
+            <td>${extIcon(f.extension)}</td>
+            <td style="font-weight:600;font-size:.84rem">${esc(f.titulo)}</td>
+            <td><span class="carpeta-badge c-${esc(f.carpeta)}">${esc(f.carpeta)}</span></td>
+            <td style="font-size:.76rem;color:var(--text-muted)">${fmtSize(f.tamano)}</td>
+            <td style="font-size:.78rem">${esc(f.perfiles?.nombre||'—')} ${esc(f.perfiles?.apellido||'')}</td>
+            <td style="font-size:.73rem;color:var(--text-muted)">${fmtFecha(f.created_at)}</td>
+            <td>
+              <div class="d-flex gap-1">
+                <a href="${esc(f.url_publica)}" target="_blank" class="btn btn-sm btn-intra-outline" title="Abrir/Descargar"><i class="fa-solid fa-download"></i></a>
+                ${CAN_ADMIN.includes(_perfil.rol)?`<button class="btn btn-sm btn-danger-soft" onclick="eliminar(${f.id})" title="Eliminar"><i class="fa-solid fa-trash"></i></button>`:''}
+              </div>
+            </td>
+          </tr>`).join(''):`<tr><td colspan="7" class="text-center py-5 text-muted"><i class="fa-solid fa-folder-open fa-2x d-block mb-2" style="color:var(--text-dim)"></i>No hay archivos${bus?' que coincidan':''}.</td></tr>`}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </div>`;
+
+  document.getElementById('bSearch').addEventListener('keydown', e => { if(e.key==='Enter') buscar(); });
+}
+
+function buscar() {
+  const p    = new URLSearchParams(location.search);
+  const carp = p.get('carpeta') || '';
+  const val  = document.getElementById('bSearch').value.trim();
+  let url = PAGES.biblioteca;
+  const params = [];
+  if (carp) params.push('carpeta='+carp);
+  if (val)  params.push('buscar='+encodeURIComponent(val));
+  if (params.length) url += '?' + params.join('&');
+  window.location.href = url;
+}
+
+async function eliminar(id) {
+  if (!confirm('¿Eliminar este archivo?')) return;
+  const { error } = await sb.from('archivos').update({ activo: false }).eq('id', id);
+  if (error) { toast(error.message, 'err'); return; }
+  toast('Archivo eliminado', 'ok');
+  await cargar();
+}
+</script>
+</body>
+</html>
