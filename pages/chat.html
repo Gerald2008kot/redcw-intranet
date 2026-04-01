@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="es" id="htmlRoot">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>IntraNet RedCW — Chat</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+<style>
+.chat-layout{display:flex;height:calc(100vh - 140px);gap:.75rem}
+.chat-sidebar{width:260px;flex-shrink:0;display:flex;flex-direction:column;gap:.75rem;overflow-y:auto}
+.chat-main{flex:1;min-width:0;display:flex;flex-direction:column}
+.contact-row{display:flex;align-items:center;gap:.55rem;padding:.5rem .75rem;border-radius:var(--radius-sm);cursor:pointer;text-decoration:none;color:var(--text-main);transition:background .14s}
+.contact-row:hover{background:var(--accent-soft)}.contact-row.active{background:var(--accent-soft);border-left:3px solid var(--accent)}
+@media(max-width:768px){.chat-sidebar{display:none}.chat-layout{flex-direction:column;height:auto}}
+</style>
+</head>
+<body>
+<div class="app-wrap">
+  <nav class="app-nav" id="appNav"></nav>
+  <main style="flex:1;padding:1rem">
+    <div id="app" style="display:flex;align-items:center;justify-content:center;min-height:200px;font-size:1.5rem;color:var(--accent)">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+    </div>
+  </main>
+</div>
+<div id="toasts"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="../config.js"></script>
+<script>
+'use strict';
+let _perfil, _rtCh = null;
+
+(async () => {
+  const ctx = await requireAuth();
+  if (!ctx) return;
+  _perfil = ctx.perfil;
+  await renderNav(_perfil, 'chat');
+  await cargar();
+})();
+
+async function cargar() {
+  const p    = new URLSearchParams(location.search);
+  const priv = p.get('privado') || null;
+  const grp  = p.get('grupo')   || null;
+
+  let histQ = sb.from('mensajes').select('*,perfiles(nombre,apellido,avatar_url)');
+  if (priv)     histQ = histQ.or(`and(usuario_id.eq.${_perfil.id},destinatario_id.eq.${priv}),and(usuario_id.eq.${priv},destinatario_id.eq.${_perfil.id})`);
+  else if (grp) histQ = histQ.eq('grupo_id', grp);
+  else          histQ = histQ.is('destinatario_id', null).is('grupo_id', null);
+
+  const [histR, usrsR, grpsR] = await Promise.all([
+    histQ.order('id',{ascending:false}).limit(60),
+    sb.from('perfiles').select('id,nombre,apellido,avatar_url,departamento').eq('activo',true).order('nombre'),
+    sb.from('grupos').select('id,nombre').eq('activo',true),
+  ]);
+
+  const hist   = (histR.data||[]).reverse();
+  const titulo = priv
+    ? (() => { const u=(usrsR.data||[]).find(u=>u.id===priv); return u?`${u.nombre} ${u.apellido}`:'Chat privado'; })()
+    : grp
+    ? (() => { const g=(grpsR.data||[]).find(g=>String(g.id)===grp); return g?`Grupo: ${g.nombre}`:'Grupo'; })()
+    : 'Muro Corporativo';
+
+  document.getElementById('app').innerHTML = `
+  <div class="chat-layout fade-in">
+    <!-- Sidebar -->
+    <div class="chat-sidebar">
+      <div class="intra-card" style="overflow:hidden">
+        <div class="card-header" style="font-size:.8rem"><i class="fa-solid fa-globe me-1"></i>Muro</div>
+        <a href="${PAGES.chat}" class="contact-row ${!priv&&!grp?'active':''}">
+          <div style="width:32px;height:32px;border-radius:50%;background:var(--accent-soft);display:flex;align-items:center;justify-content:center;color:var(--accent);font-size:.85rem;flex-shrink:0"><i class="fa-solid fa-users"></i></div>
+          <span style="font-size:.83rem;font-weight:600">Todos</span>
+        </a>
+      </div>
+      ${(grpsR.data||[]).length?`
+      <div class="intra-card" style="overflow:hidden">
+        <div class="card-header" style="font-size:.8rem"><i class="fa-solid fa-layer-group me-1"></i>Grupos</div>
+        ${(grpsR.data||[]).map(g=>`
+        <a href="${PAGES.chat}?grupo=${g.id}" class="contact-row ${grp===String(g.id)?'active':''}">
+          <div style="width:32px;height:32px;border-radius:50%;background:rgba(30,126,52,.1);display:flex;align-items:center;justify-content:center;color:#1e7e34;font-size:.85rem;flex-shrink:0"><i class="fa-solid fa-users-rectangle"></i></div>
+          <span style="font-size:.83rem;font-weight:600">${esc(g.nombre)}</span>
+        </a>`).join('')}
+      </div>`:''}
+      <div class="intra-card" style="flex:1;overflow:hidden">
+        <div class="card-header" style="font-size:.8rem"><i class="fa-solid fa-lock me-1"></i>Privados</div>
+        <div style="overflow-y:auto;max-height:400px">
+          ${(usrsR.data||[]).filter(u=>u.id!==_perfil.id).map(u=>`
+          <a href="${PAGES.chat}?privado=${u.id}" class="contact-row ${priv===u.id?'active':''}">
+            <img src="${esc(avatarSrc(u.avatar_url,u.nombre,u.apellido))}" width="32" height="32" alt="" style="width:32px;height:32px;max-width:32px;max-height:32px;border-radius:50%;object-fit:cover;flex-shrink:0">
+            <div style="min-width:0">
+              <div style="font-size:.83rem;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(u.nombre)} ${esc(u.apellido)}</div>
+              <div style="font-size:.7rem;color:var(--text-muted)">${esc(u.departamento||'—')}</div>
+            </div>
+          </a>`).join('')}
+        </div>
+      </div>
+    </div>
+    <!-- Chat principal -->
+    <div class="chat-main">
+      <div class="intra-card" style="flex:1;display:flex;flex-direction:column;min-height:0;height:100%">
+        <div class="card-header">
+          <i class="fa-solid fa-${priv?'lock':grp?'users':'globe'}"></i>
+          ${esc(titulo)}
+          ${priv||grp?`<a href="${PAGES.chat}" class="btn btn-intra-outline btn-sm ms-auto" style="font-size:.72rem"><i class="fa-solid fa-arrow-left me-1"></i>Muro</a>`:''}
+        </div>
+        <div id="chatWall" class="chat-wall" style="flex:1;overflow-y:auto;min-height:0;max-height:calc(100vh - 260px)">
+          ${hist.map(mkMsg).join('')||'<div class="text-center text-muted py-5"><i class="fa-solid fa-comment-slash fa-2x d-block mb-2" style="color:var(--text-dim)"></i>¡Sé el primero en escribir!</div>'}
+        </div>
+        <div style="padding:.75rem;border-top:1px solid var(--border)">
+          <div class="d-flex gap-2">
+            <input id="msgIn" type="text" class="form-control" placeholder="${priv?'Mensaje privado...':grp?'Mensaje al grupo...':'Escribe en el muro...'}" autocomplete="off">
+            <button onclick="enviar()" class="btn btn-intra px-3" id="btnSend"><i class="fa-solid fa-paper-plane"></i></button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  const wall = document.getElementById('chatWall');
+  if (wall) wall.scrollTop = wall.scrollHeight;
+  if (priv) sb.from('mensajes').update({leido:true}).eq('usuario_id',priv).eq('destinatario_id',_perfil.id).eq('leido',false).then(()=>{});
+
+  document.getElementById('msgIn').addEventListener('keydown', e => {
+    if (e.key==='Enter'&&!e.shiftKey) { e.preventDefault(); enviar(); }
+  });
+
+  // Realtime
+  if (_rtCh) await sb.removeChannel(_rtCh);
+  _rtCh = sb.channel(`chat-${priv||grp||'muro'}`);
+  _rtCh.on('postgres_changes',{event:'INSERT',schema:'public',table:'mensajes'}, async ev => {
+    const m = ev.new;
+    if (document.getElementById(`msg-${m.id}`)) return;
+    const isMuro = !m.destinatario_id&&!m.grupo_id&&!priv&&!grp;
+    const isPriv = priv&&((m.usuario_id===_perfil.id&&m.destinatario_id===priv)||(m.usuario_id===priv&&m.destinatario_id===_perfil.id));
+    const isGrp  = grp&&String(m.grupo_id)===grp;
+    if (!isMuro&&!isPriv&&!isGrp) return;
+    const { data:autor } = await sb.from('perfiles').select('nombre,apellido,avatar_url').eq('id',m.usuario_id).single();
+    m.perfiles = autor;
+    const atBtm = wall?(wall.scrollHeight-wall.scrollTop-wall.clientHeight)<80:false;
+    wall?.insertAdjacentHTML('beforeend', mkMsg(m));
+    if (atBtm&&wall) wall.scrollTop = wall.scrollHeight;
+    if (m.destinatario_id===_perfil.id) sb.from('mensajes').update({leido:true}).eq('id',m.id).then(()=>{});
+  }).subscribe();
+}
+
+function mkMsg(m) {
+  const mine = m.usuario_id === _perfil.id;
+  const p    = m.perfiles || {};
+  const ava  = avatarSrc(p.avatar_url, p.nombre, p.apellido);
+  return `<div class="msg-bubble ${mine?'mine':''}" id="msg-${m.id}">
+    <div class="msg-ava"><img src="${esc(ava)}" width="30" height="30" alt="" style="width:30px;height:30px;max-width:30px;max-height:30px;object-fit:cover;border-radius:50%;display:block"></div>
+    <div class="msg-body">
+      <div class="msg-name">${esc(p.nombre||'')} ${esc(p.apellido||'')}</div>
+      <div class="msg-text">${esc(m.contenido).replace(/\n/g,'<br>')}</div>
+      <div class="msg-time">${fmtHora(m.created_at)}</div>
+    </div>
+  </div>`;
+}
+
+async function enviar() {
+  const inp = document.getElementById('msgIn');
+  const txt = inp?.value.trim();
+  if (!txt) return;
+  const p   = new URLSearchParams(location.search);
+  const priv= p.get('privado');
+  const grp = p.get('grupo');
+  inp.value = '';
+  const btn = document.getElementById('btnSend');
+  if (btn) btn.disabled = true;
+  const { error } = await sb.from('mensajes').insert({
+    usuario_id     : _perfil.id,
+    contenido      : txt,
+    destinatario_id: priv || null,
+    grupo_id       : grp ? parseInt(grp) : null,
+  });
+  if (error) toast('Error al enviar: '+error.message,'err');
+  if (btn) btn.disabled = false;
+  inp.focus();
+}
+</script>
+</body>
+</html>
