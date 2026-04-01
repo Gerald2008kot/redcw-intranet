@@ -16,6 +16,8 @@ const CLD = {
 const PAGES = {
   login     : 'login.html',
   dashboard : 'dashboard.html',
+  loginre   : 'pages/login.html',
+  dashboardre: 'pages/dashboard.html',
   chat      : 'chat.html',
   biblioteca: 'biblioteca.html',
   upload    : 'upload.html',
