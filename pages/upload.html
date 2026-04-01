@@ -1,0 +1,230 @@
+<!DOCTYPE html>
+<html lang="es" id="htmlRoot">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>IntraNet RedCW — Subir Archivos</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="app-wrap">
+  <nav class="app-nav" id="appNav"></nav>
+  <main id="app" style="flex:1;padding:1.4rem 0">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:200px;font-size:1.5rem;color:var(--accent)">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+    </div>
+  </main>
+</div>
+<div id="toasts"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="../config.js"></script>
+<script>
+'use strict';
+let _perfil, cola = [], idC = 0;
+
+(async () => {
+  const ctx = await requireAuth();
+  if (!ctx) return;
+  _perfil = ctx.perfil;
+  if (!CAN_UPLOAD.includes(_perfil.rol)) {
+    window.location.href = PAGES.dashboard;
+    return;
+  }
+  await renderNav(_perfil, 'upload');
+  renderPage();
+})();
+
+function renderPage() {
+  document.getElementById('app').innerHTML = `
+  <div class="ctn px-3 fade-in">
+    <div class="d-flex ai-center jc-between mb-4 flex-wrap gap-2">
+      <h4 class="fw-700 mb-0"><i class="fa-solid fa-cloud-arrow-up me-2 text-accent"></i>Subir Archivos</h4>
+      <span id="colaCnt" style="font-size:.8rem;color:var(--text-muted)"></span>
+    </div>
+    <div id="uplRes" class="intra-card mb-4" style="display:none">
+      <div class="card-header"><i class="fa-solid fa-list-check"></i> Resultados
+        <button onclick="document.getElementById('uplRes').style.display='none'" class="btn btn-intra-outline btn-sm ms-auto" style="font-size:.72rem">Limpiar</button>
+      </div>
+      <div id="uplResList" style="padding:.3rem 0"></div>
+    </div>
+    <div class="row g4">
+      <div class="col-lg-7">
+        <div class="intra-card">
+          <div class="card-header"><i class="fa-solid fa-upload"></i> Seleccionar Archivos</div>
+          <div class="card-body">
+            <div id="dz" class="dropzone mb-3">
+              <i class="fa-solid fa-cloud-arrow-up"></i>
+              <div class="fw-600 mb-1">Arrastra archivos aquí o toca para seleccionar</div>
+              <small class="text-muted">Imágenes, Audio, Video, Documentos, Comprimidos</small>
+              <input type="file" id="fInput" multiple class="d-none">
+            </div>
+            <div id="colaDiv" style="display:none;margin-bottom:1rem">
+              <div style="font-size:.8rem;font-weight:600;color:var(--text-muted);margin-bottom:.5rem">Archivos en cola:</div>
+              <div id="colaList" class="d-flex flex-col gap-2"></div>
+            </div>
+            <div id="metaDiv" style="display:none">
+              <div class="row g3 mt-1">
+                <div class="col-md-6">
+                  <label class="form-label">Departamento</label>
+                  <input id="mDept" type="text" class="form-control" placeholder="Ej: TI">
+                </div>
+                <div class="col-md-6">
+                  <label class="form-label">Categoría</label>
+                  <select id="mCat" class="form-select">
+                    <option value="">— Sin categoría —</option>
+                    <option>Manual</option><option>Reporte</option><option>Política</option>
+                    <option>Audio / Podcast</option><option>Video</option><option>Otro</option>
+                  </select>
+                </div>
+              </div>
+              <button id="uplBtn" onclick="subirTodo()" class="btn btn-intra btn-w mt-4 py-2">
+                <i class="fa-solid fa-upload me-1"></i>Subir <span id="uplCnt">0</span> archivo(s)
+              </button>
+              <div id="uplProg" style="display:none;margin-top:1rem">
+                <div style="font-size:.78rem;color:var(--text-muted);margin-bottom:.35rem">Subiendo <span id="progN">0</span> de <span id="progT">0</span>...</div>
+                <div style="background:var(--bg-card2);border-radius:4px;height:8px;overflow:hidden">
+                  <div id="progB" style="height:100%;width:0;border-radius:4px;background:linear-gradient(90deg,var(--primary),var(--primary-light));transition:width .3s"></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-5">
+        <div class="intra-card">
+          <div class="card-header"><i class="fa-solid fa-cloud"></i> Destino de archivos</div>
+          <div class="card-body" style="font-size:.82rem;color:var(--text-muted);line-height:2">
+            <div><i class="fa-brands fa-cloudinary me-2" style="color:#3448C5"></i><b>Todo</b> sube a <b>Cloudinary</b></div>
+            <hr style="border-color:var(--border);margin:.5rem 0">
+            <div><i class="fa-solid fa-image me-2" style="color:#8e44ad"></i>Imágenes → resource: image</div>
+            <div><i class="fa-solid fa-music me-2" style="color:#7d3cff"></i>Audio → resource: raw</div>
+            <div><i class="fa-solid fa-video me-2" style="color:#c0392b"></i>Videos → resource: video</div>
+            <div><i class="fa-solid fa-file-lines me-2" style="color:var(--accent)"></i>Documentos → resource: raw</div>
+            <hr style="border-color:var(--border);margin:.5rem 0">
+            <div style="font-size:.74rem;color:var(--text-dim)"><i class="fa-solid fa-circle-info me-1"></i>Asegúrate de que tu upload preset tenga <b>Resource type: Auto</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  const dz = document.getElementById('dz');
+  const fi = document.getElementById('fInput');
+  dz.addEventListener('click', () => fi.click());
+  dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('dz-over'); });
+  dz.addEventListener('dragleave', () => dz.classList.remove('dz-over'));
+  dz.addEventListener('drop', e => { e.preventDefault(); dz.classList.remove('dz-over'); if(e.dataTransfer.files.length) addFiles(e.dataTransfer.files); });
+  fi.addEventListener('change', () => { if(fi.files.length) addFiles(fi.files); fi.value=''; });
+}
+
+function addFiles(fs) {
+  Array.from(fs).forEach(f => {
+    cola.push({ file:f, titulo:f.name.replace(/\.[^.]+$/,'').replace(/[_-]/g,' '), id:++idC });
+  });
+  renderCola();
+}
+
+function renderCola() {
+  const list = document.getElementById('colaList');
+  const cdiv = document.getElementById('colaDiv');
+  const mdiv = document.getElementById('metaDiv');
+  const cnt  = document.getElementById('uplCnt');
+  const cnt2 = document.getElementById('colaCnt');
+  if (!cola.length) {
+    cdiv.style.display='none'; mdiv.style.display='none';
+    if(cnt2) cnt2.textContent=''; return;
+  }
+  cdiv.style.display='block'; mdiv.style.display='block';
+  if(cnt)  cnt.textContent  = cola.length;
+  if(cnt2) cnt2.textContent = `${cola.length} archivo(s) en cola`;
+  list.innerHTML = '';
+  cola.forEach((item, i) => {
+    const d = document.createElement('div');
+    d.className = 'file-item'; d.id = 'fi-'+item.id;
+    d.innerHTML = `
+      ${extIcon(item.file.name.split('.').pop())}
+      <input type="text" class="form-control" style="font-size:.78rem;flex:1;min-width:0"
+             placeholder="Título *" value="${esc(item.titulo)}"
+             oninput="cola[${i}].titulo=this.value">
+      <span style="font-size:.72rem;color:var(--text-muted);flex-shrink:0">${fmtSize(item.file.size)}</span>
+      <button onclick="quitarItem(${item.id})" style="background:none;border:none;color:var(--danger);cursor:pointer;padding:2px 4px"><i class="fa-solid fa-xmark"></i></button>`;
+    list.appendChild(d);
+  });
+}
+
+function quitarItem(id) { cola = cola.filter(x => x.id !== id); renderCola(); }
+
+async function subirTodo() {
+  if (!cola.length) return;
+  const sinTitulo = cola.filter(i => !i.titulo.trim());
+  if (sinTitulo.length) { toast('Escribe título para todos los archivos','err'); return; }
+
+  const dept  = document.getElementById('mDept').value;
+  const cat   = document.getElementById('mCat').value;
+  const total = cola.length;
+  document.getElementById('uplBtn').disabled = true;
+  document.getElementById('uplProg').style.display = 'block';
+  document.getElementById('progT').textContent = total;
+  document.getElementById('uplRes').style.display = 'block';
+
+  const snap = cola.slice();
+  for (let i = 0; i < snap.length; i++) {
+    const item = snap[i];
+    const row  = document.getElementById('fi-'+item.id);
+    document.getElementById('progN').textContent = i+1;
+    document.getElementById('progB').style.width = Math.round(i/total*100)+'%';
+    if(row) row.className = 'file-item ing';
+
+    let r;
+    try {
+      const ext  = item.file.name.split('.').pop().toLowerCase();
+      const carp = extCarpeta(ext);
+      const { publicId, resourceType } = await uploadToCloudinary(item.file, carp);
+      const url = cldPublicUrl(publicId, resourceType);
+      const { error } = await sb.from('archivos').insert({
+        nombre_original : item.file.name,
+        nombre_clave    : publicId,
+        storage_tipo    : 'cloudinary',
+        carpeta         : carp,
+        extension       : ext,
+        mime            : item.file.type || 'application/octet-stream',
+        tamano          : item.file.size,
+        url_publica     : url,
+        titulo          : item.titulo,
+        departamento    : dept,
+        categoria       : cat,
+        subido_por      : _perfil.id,
+      });
+      if (error) throw new Error(error.message);
+      r = { ok:true, titulo:item.titulo, carpeta:carp };
+      if(row) row.className = 'file-item ok';
+    } catch(e) {
+      r = { ok:false, titulo:item.titulo, error:e.message };
+      if(row) row.className = 'file-item err';
+    }
+    agregarResultado(r);
+  }
+
+  document.getElementById('progB').style.width = '100%';
+  document.getElementById('uplProg').style.display = 'none';
+  document.getElementById('uplBtn').disabled = false;
+
+  const ids = snap.map(i => i.id);
+  cola = cola.filter(i => !ids.includes(i.id));
+  renderCola();
+}
+
+function agregarResultado(r) {
+  const l = document.getElementById('uplResList');
+  const d = document.createElement('div');
+  d.style.cssText = 'padding:.4rem 1rem;border-bottom:1px solid var(--border);font-size:.82rem;display:flex;align-items:center;gap:.5rem';
+  d.innerHTML = r.ok
+    ? `<i class="fa-solid fa-circle-check" style="color:#1e7e34;flex-shrink:0"></i><span><b>${esc(r.titulo)}</b> → ${esc(r.carpeta)}</span>`
+    : `<i class="fa-solid fa-circle-xmark" style="color:var(--danger);flex-shrink:0"></i><span><b>${esc(r.titulo)}</b> — ${esc(r.error)}</span>`;
+  l.appendChild(d);
+}
+</script>
+</body>
+</html>
