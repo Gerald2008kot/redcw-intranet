@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="es" id="htmlRoot">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>IntraNet RedCW — Dashboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="app-wrap">
+  <nav class="app-nav" id="appNav"></nav>
+  <main id="app" style="flex:1;padding:1.4rem 0">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:200px;font-size:1.5rem;color:var(--accent)">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+    </div>
+  </main>
+  <footer class="app-footer">
+    <div class="ctn px-3 d-flex ai-center jc-between flex-wrap gap-2">
+      <span><strong style="color:var(--accent)">IntraNet RedCW</strong> <span style="font-size:.68rem;color:var(--text-dim)">v3.0</span></span>
+      <span style="font-size:.72rem">Supabase · Cloudinary</span>
+    </div>
+  </footer>
+</div>
+<div id="toasts"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="../config-dashboard.js"></script>
+<script>
+'use strict';
+(async () => {
+  const ctx = await requireAuth();
+  if (!ctx) return;
+  const { perfil } = ctx;
+
+  await renderNav(perfil, 'dashboard');
+
+  const [archR, usrR, msgR, anunR, recR, slR] = await Promise.all([
+    sb.from('archivos').select('id',{count:'exact',head:true}).eq('activo',true),
+    sb.from('perfiles').select('id',{count:'exact',head:true}).eq('activo',true),
+    sb.from('mensajes').select('id',{count:'exact',head:true}).is('destinatario_id',null).is('grupo_id',null),
+    sb.from('anuncios').select('*,perfiles(nombre,apellido)').eq('activo',true).order('fijado',{ascending:false}).order('created_at',{ascending:false}).limit(5),
+    sb.from('archivos').select('*,perfiles(nombre,apellido)').eq('activo',true).order('created_at',{ascending:false}).limit(6),
+    sb.from('mensajes').select('id',{count:'exact',head:true}).eq('destinatario_id',perfil.id).eq('leido',false),
+  ]);
+  const sinLeer = slR.count || 0;
+  const totalD  = (await sb.from('archivos').select('descargas').eq('activo',true)).data?.reduce((s,r)=>s+(r.descargas||0),0)||0;
+
+  document.getElementById('app').innerHTML = `
+  <div class="ctn px-3 fade-in">
+    <div class="d-flex ai-center jc-between mb-4 flex-wrap gap-2">
+      <div>
+        <h4 class="fw-700 mb-0"><i class="fa-solid fa-gauge-high me-2 text-accent"></i>Dashboard</h4>
+        <small class="text-muted">Bienvenido, ${esc(perfil.nombre)}</small>
+      </div>
+    </div>
+    <div class="row g3 mb-4">
+      <div class="col-6 col-md-4" style="max-width:200px">
+        <a class="stat-card" href="${PAGES.biblioteca}">
+          <div class="stat-icon teal"><i class="fa-solid fa-folder-open"></i></div>
+          <div><div class="stat-value">${archR.count||0}</div><div class="stat-label">Archivos</div></div>
+        </a>
+      </div>
+      <div class="col-6 col-md-4" style="max-width:200px">
+        <a class="stat-card pos-rel" href="${PAGES.chat}">
+          <div class="stat-icon blue" style="position:relative">
+            <i class="fa-solid fa-comments"></i>
+            ${sinLeer?`<span class="notif-dot">${sinLeer}</span>`:''}
+          </div>
+          <div><div class="stat-value">${msgR.count||0}</div><div class="stat-label">Mensajes</div></div>
+        </a>
+      </div>
+      <div class="col-6 col-md-4" style="max-width:200px">
+        <div class="stat-card">
+          <div class="stat-icon amber"><i class="fa-solid fa-users"></i></div>
+          <div><div class="stat-value">${usrR.count||0}</div><div class="stat-label">Usuarios</div></div>
+        </div>
+      </div>
+      <div class="col-6 col-md-4" style="max-width:200px">
+        <div class="stat-card">
+          <div class="stat-icon green"><i class="fa-solid fa-download"></i></div>
+          <div><div class="stat-value">${totalD}</div><div class="stat-label">Descargas</div></div>
+        </div>
+      </div>
+    </div>
+    <div class="row g4">
+      <div class="col-lg-8">
+        <div class="intra-card mb-4">
+          <div class="card-header"><i class="fa-solid fa-grip"></i> Accesos Rápidos</div>
+          <div class="card-body">
+            <div class="tile-grid">
+              <a href="${PAGES.chat}" class="tile"><i class="fa-solid fa-comments"></i><span>Chat</span>${sinLeer?`<span class="tile-badge">${sinLeer}</span>`:''}</a>
+              <a href="${PAGES.biblioteca}" class="tile"><i class="fa-solid fa-folder-open"></i><span>Biblioteca</span></a>
+              <a href="${PAGES.encuestas}" class="tile"><i class="fa-solid fa-chart-bar"></i><span>Encuestas</span></a>
+              <a href="${PAGES.llamadas}" class="tile"><i class="fa-solid fa-phone-volume"></i><span>Llamadas</span></a>
+              <a href="${PAGES.perfil}" class="tile"><i class="fa-solid fa-circle-user"></i><span>Perfil</span></a>
+              ${CAN_UPLOAD.includes(perfil.rol)?`<a href="${PAGES.upload}" class="tile"><i class="fa-solid fa-cloud-arrow-up"></i><span>Subir</span></a>`:''}
+              ${CAN_ADMIN.includes(perfil.rol) ?`<a href="${PAGES.admin}"  class="tile"><i class="fa-solid fa-shield-halved"></i><span>Admin</span></a>`:''}
+            </div>
+          </div>
+        </div>
+        <div class="intra-card">
+          <div class="card-header">
+            <i class="fa-solid fa-clock-rotate-left"></i> Archivos Recientes
+            <a href="${PAGES.biblioteca}" class="btn btn-intra-outline btn-sm ms-auto" style="font-size:.72rem">Ver todos</a>
+          </div>
+          <div class="table-responsive">
+            <table class="intra-table">
+              <thead><tr><th></th><th>Título</th><th>Tipo</th><th>Tamaño</th><th>Fecha</th></tr></thead>
+              <tbody>
+              ${(recR.data||[]).map(f=>`<tr>
+                <td>${extIcon(f.extension)}</td>
+                <td style="font-weight:600;font-size:.84rem">${esc(f.titulo)}</td>
+                <td><span class="carpeta-badge c-${esc(f.carpeta)}">${esc(f.carpeta)}</span></td>
+                <td style="font-size:.76rem;color:var(--text-muted)">${fmtSize(f.tamano)}</td>
+                <td style="font-size:.73rem;color:var(--text-muted)">${fmtFecha(f.created_at)}</td>
+              </tr>`).join('')||'<tr><td colspan="5" class="text-center text-muted py-3">Sin archivos aún</td></tr>'}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-4">
+        <div class="intra-card">
+          <div class="card-header"><i class="fa-solid fa-bullhorn"></i> Anuncios</div>
+          <div class="card-body d-flex flex-col gap-3">
+            ${(anunR.data||[]).length?(anunR.data||[]).map(a=>`
+            <div class="anuncio-card ${a.fijado?'fijado':''}">
+              ${a.fijado?'<span style="font-size:.63rem;color:var(--warning);font-weight:700"><i class="fa-solid fa-thumbtack me-1"></i>FIJADO</span>':''}
+              <div class="fw-600 mb-1" style="font-size:.88rem">${esc(a.titulo)}</div>
+              <div style="font-size:.79rem;color:var(--text-muted)">${esc((a.contenido||'').substring(0,110))}${(a.contenido?.length>110)?'...':''}</div>
+              <div style="font-size:.7rem;color:var(--text-dim);margin-top:.3rem">${esc(a.perfiles?.nombre||'')} · ${fmtFecha(a.created_at)}</div>
+            </div>`).join(''):'<p class="text-center text-muted py-3 mb-0">Sin anuncios.</p>'}
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+})();
+</script>
+</body>
+</html>
