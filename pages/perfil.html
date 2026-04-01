@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="es" id="htmlRoot">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>IntraNet RedCW — Mi Perfil</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="app-wrap">
+  <nav class="app-nav" id="appNav"></nav>
+  <main id="app" style="flex:1;padding:1.4rem 0">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:200px;font-size:1.5rem;color:var(--accent)">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+    </div>
+  </main>
+</div>
+<div id="toasts"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="../config.js"></script>
+<script>
+'use strict';
+let _perfil, _user;
+
+(async () => {
+  const ctx = await requireAuth();
+  if (!ctx) return;
+  _perfil = ctx.perfil;
+  _user   = ctx.user;
+
+  await renderNav(_perfil, 'perfil');
+  renderPerfil();
+})();
+
+function renderPerfil() {
+  const p      = _perfil;
+  const ava    = avatarSrc(p.avatar_url, p.nombre, p.apellido);
+  const temaAct= p.tema || 'system';
+
+  document.getElementById('app').innerHTML = `
+  <div class="ctn px-3 fade-in">
+    <h4 class="fw-700 mb-4"><i class="fa-solid fa-circle-user me-2 text-accent"></i>Mi Perfil</h4>
+    <div class="row g4">
+      <div class="col-lg-4">
+        <div class="intra-card mb-3">
+          <div class="card-body text-center py-4">
+            <div style="position:relative;width:96px;height:96px;margin:0 auto .75rem">
+              <img id="avaPrev" src="${esc(ava)}" width="96" height="96" alt=""
+                style="width:96px;height:96px;max-width:96px;max-height:96px;border-radius:50%;object-fit:cover;display:block;border:2px solid var(--accent)">
+              <label for="avaIn" style="position:absolute;bottom:2px;right:2px;width:26px;height:26px;border-radius:50%;background:var(--accent);display:flex;align-items:center;justify-content:center;cursor:pointer;border:2px solid var(--bg-card);font-size:.7rem;color:#fff" title="Cambiar foto">
+                <i class="fa-solid fa-camera"></i>
+              </label>
+              <input type="file" id="avaIn" class="d-none" accept="image/jpeg,image/png,image/gif,image/webp">
+            </div>
+            <div id="avaLoader" style="display:none;font-size:.78rem;color:var(--accent);margin-bottom:.4rem">
+              <i class="fa-solid fa-spinner fa-spin me-1"></i>Subiendo foto...
+            </div>
+            <h5 class="fw-700 mb-1">${esc(p.nombre)} ${esc(p.apellido)}</h5>
+            <div style="font-size:.82rem;color:var(--text-muted);margin-bottom:.5rem">${esc(_user.email)}</div>
+            <span class="rol-badge rol-${esc(p.rol)}">${esc(p.rol)}</span>
+            ${p.departamento?`<div class="mt-2"><span class="badge-dept">${esc(p.departamento)}</span></div>`:''}
+          </div>
+        </div>
+        <div class="intra-card">
+          <div class="card-header"><i class="fa-solid fa-palette"></i> Tema de interfaz</div>
+          <div class="card-body d-flex flex-col gap-2">
+            ${[['system','fa-circle-half-stroke','Sistema','Sigue al dispositivo'],
+               ['light','fa-sun','Claro','Fondo blanco corporativo'],
+               ['dark','fa-moon','Oscuro','Fondo oscuro']].map(([v,ico,l,desc])=>`
+            <label style="cursor:pointer">
+              <input type="radio" name="tRad" value="${v}" ${temaAct===v?'checked':''} class="d-none tema-rad">
+              <div class="tema-opt" style="display:flex;align-items:center;gap:.65rem;padding:.6rem .85rem;border:2px solid ${temaAct===v?'var(--accent)':'var(--border)'};border-radius:var(--radius);background:var(--bg-card2);cursor:pointer;transition:border-color .2s">
+                <i class="fa-solid ${ico}" style="color:${temaAct===v?'var(--accent)':'var(--text-dim)'}"></i>
+                <div><div style="font-size:.85rem;font-weight:600">${l}</div><div style="font-size:.72rem;color:var(--text-muted)">${desc}</div></div>
+              </div>
+            </label>`).join('')}
+          </div>
+        </div>
+      </div>
+      <div class="col-lg-8">
+        <div class="intra-card">
+          <div class="card-header"><i class="fa-solid fa-pen"></i> Editar Información</div>
+          <div class="card-body">
+            <div id="pErr" class="alert alert-danger mb-3" style="display:none"></div>
+            <div id="pOk"  class="alert alert-success mb-3" style="display:none"></div>
+            <div class="row g3">
+              <div class="col-md-6"><label class="form-label">Nombre *</label><input id="pN" type="text" class="form-control" value="${esc(p.nombre)}" required></div>
+              <div class="col-md-6"><label class="form-label">Apellido *</label><input id="pA" type="text" class="form-control" value="${esc(p.apellido)}" required></div>
+              <div class="col-md-6"><label class="form-label">Teléfono</label><input id="pT" type="text" class="form-control" value="${esc(p.telefono||'')}" placeholder="+1 555 0000"></div>
+              <div class="col-md-6"><label class="form-label">Departamento</label><input id="pD" type="text" class="form-control" value="${esc(p.departamento||'')}"></div>
+            </div>
+            <div class="mt-4 mb-2" style="font-size:.82rem;font-weight:600;color:var(--text-muted)">
+              <i class="fa-solid fa-lock me-1"></i>Cambiar contraseña <small style="font-weight:400;color:var(--text-dim)">(vacío = no cambiar)</small>
+            </div>
+            <div class="row g3">
+              <div class="col-md-6"><label class="form-label">Nueva contraseña</label><input id="pP1" type="password" class="form-control" placeholder="Mín. 8 caracteres"></div>
+              <div class="col-md-6"><label class="form-label">Confirmar</label><input id="pP2" type="password" class="form-control" placeholder="Repetir contraseña"></div>
+            </div>
+            <button id="pBtn" onclick="savePerfil()" class="btn btn-intra mt-4 px-4">
+              <i class="fa-solid fa-floppy-disk me-1"></i>Guardar Cambios
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>`;
+
+  // Tema en tiempo real
+  document.querySelectorAll('.tema-rad').forEach(r => {
+    r.addEventListener('change', () => {
+      applyTema(r.value);
+      sb.from('perfiles').update({ tema: r.value }).eq('id', _perfil.id).then(() => {});
+      document.querySelectorAll('.tema-opt').forEach((d, i) => {
+        const rad = document.querySelectorAll('.tema-rad')[i];
+        d.style.borderColor = rad.checked ? 'var(--accent)' : 'var(--border)';
+        d.querySelector('i').style.color = rad.checked ? 'var(--accent)' : 'var(--text-dim)';
+      });
+    });
+  });
+
+  // Avatar → Cloudinary
+  document.getElementById('avaIn').addEventListener('change', async e => {
+    const f = e.target.files[0];
+    if (!f) return;
+    document.getElementById('avaPrev').src = URL.createObjectURL(f);
+    document.getElementById('avaLoader').style.display = 'block';
+    try {
+      const { publicId } = await uploadToCloudinary(f, 'avatares');
+      const url = cldAvatarUrl(publicId);
+      const { error } = await sb.from('perfiles').update({ avatar_url: url }).eq('id', _perfil.id);
+      if (error) throw new Error(error.message);
+      _perfil.avatar_url = url;
+      document.getElementById('avaPrev').src = url;
+      toast('Foto actualizada ✓', 'ok');
+    } catch (err) {
+      toast('Error subiendo foto: ' + err.message, 'err');
+    } finally {
+      document.getElementById('avaLoader').style.display = 'none';
+      e.target.value = '';
+    }
+  });
+}
+
+async function savePerfil() {
+  const errEl = document.getElementById('pErr');
+  const okEl  = document.getElementById('pOk');
+  const btn   = document.getElementById('pBtn');
+  errEl.style.display = 'none';
+  okEl.style.display  = 'none';
+
+  const n  = document.getElementById('pN').value.trim();
+  const a  = document.getElementById('pA').value.trim();
+  const t  = document.getElementById('pT').value.trim();
+  const d  = document.getElementById('pD').value.trim();
+  const p1 = document.getElementById('pP1').value;
+  const p2 = document.getElementById('pP2').value;
+
+  if (!n || !a) { errEl.textContent='Nombre y apellido son requeridos.'; errEl.style.display='block'; return; }
+  if (p1 && p1 !== p2) { errEl.textContent='Las contraseñas no coinciden.'; errEl.style.display='block'; return; }
+  if (p1 && p1.length < 8) { errEl.textContent='Contraseña mínimo 8 caracteres.'; errEl.style.display='block'; return; }
+
+  btn.disabled = true;
+  btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin me-1"></i>Guardando...';
+
+  const { error } = await sb.from('perfiles')
+    .update({ nombre:n, apellido:a, telefono:t, departamento:d })
+    .eq('id', _perfil.id);
+
+  if (error) {
+    errEl.textContent = error.message;
+    errEl.style.display = 'block';
+    btn.disabled = false;
+    btn.innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar Cambios';
+    return;
+  }
+
+  if (p1) {
+    const { error: pe } = await sb.auth.updateUser({ password: p1 });
+    if (pe) {
+      errEl.textContent = 'Perfil guardado, pero error al cambiar contraseña: ' + pe.message;
+      errEl.style.display = 'block';
+    }
+  }
+
+  Object.assign(_perfil, { nombre:n, apellido:a, telefono:t, departamento:d });
+  document.getElementById('pP1').value = '';
+  document.getElementById('pP2').value = '';
+  okEl.textContent = '¡Perfil actualizado correctamente!';
+  okEl.style.display = 'block';
+  toast('Perfil guardado ✓', 'ok');
+  btn.disabled = false;
+  btn.innerHTML = '<i class="fa-solid fa-floppy-disk me-1"></i>Guardar Cambios';
+}
+</script>
+</body>
+</html>
