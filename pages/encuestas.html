@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="es" id="htmlRoot">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>IntraNet RedCW — Encuestas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="app-wrap">
+  <nav class="app-nav" id="appNav"></nav>
+  <main id="app" style="flex:1;padding:1.4rem 0">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:200px;font-size:1.5rem;color:var(--accent)">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+    </div>
+  </main>
+</div>
+<div id="toasts"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="../config.js"></script>
+<script>
+'use strict';
+let _perfil;
+
+(async () => {
+  const ctx = await requireAuth();
+  if (!ctx) return;
+  _perfil = ctx.perfil;
+  await renderNav(_perfil, 'encuestas');
+  await cargar();
+})();
+
+async function cargar() {
+  const p = new URLSearchParams(location.search);
+  const cerradas = p.get('f') === 'cerradas';
+
+  const [{ data:encs },{ data:misVotosR }] = await Promise.all([
+    sb.from('encuestas').select('*,perfiles(nombre,apellido),encuestas_opciones(*)').eq('activa',!cerradas).order('created_at',{ascending:false}),
+    sb.from('encuestas_votos').select('encuesta_id,opcion_id').eq('usuario_id',_perfil.id),
+  ]);
+
+  const misV = {};
+  (misVotosR||[]).forEach(v => { if(!misV[v.encuesta_id]) misV[v.encuesta_id]=[]; misV[v.encuesta_id].push(v.opcion_id); });
+
+  const encIds = (encs||[]).map(e=>e.id);
+  let votMap = {};
+  if (encIds.length) {
+    const { data:votos } = await sb.from('encuestas_votos').select('encuesta_id,opcion_id').in('encuesta_id',encIds);
+    (votos||[]).forEach(v => votMap[v.opcion_id] = (votMap[v.opcion_id]||0)+1);
+  }
+
+  document.getElementById('app').innerHTML = `
+  <div class="ctn px-3 fade-in">
+    <div class="d-flex ai-center jc-between mb-4 flex-wrap gap-2">
+      <h4 class="fw-700 mb-0"><i class="fa-solid fa-chart-bar me-2 text-accent"></i>Encuestas</h4>
+      ${CAN_POLL.includes(_perfil.rol)?`<button class="btn btn-intra btn-sm" onclick="mostrarFormulario()"><i class="fa-solid fa-plus me-1"></i>Nueva</button>`:''}
+    </div>
+    <div class="d-flex gap-2 mb-4">
+      <a href="${PAGES.encuestas}" class="btn btn-sm ${!cerradas?'btn-intra':'btn-intra-outline'}">Activas</a>
+      <a href="${PAGES.encuestas}?f=cerradas" class="btn btn-sm ${cerradas?'btn-intra':'btn-intra-outline'}">Cerradas</a>
+    </div>
+    <div id="encForm"></div>
+    <div class="row g4">
+    ${(encs||[]).length?(encs||[]).map(enc=>{
+      const yaVote = !!misV[enc.id];
+      const opts   = enc.encuestas_opciones||[];
+      const totV   = opts.reduce((s,o)=>s+(votMap[o.id]||0),0);
+      return `<div class="col-lg-6 mb-3">
+        <div class="enc-card">
+          <div class="enc-head">
+            <i class="fa-solid fa-chart-bar" style="color:var(--warning)"></i>
+            <span class="fw-600">${esc(enc.titulo)}</span>
+            ${enc.anonima?'<span style="font-size:.63rem;background:var(--bg-card);border:1px solid var(--border);border-radius:10px;padding:1px 7px"><i class="fa-solid fa-mask me-1"></i>Anónima</span>':''}
+            ${enc.activa&&CAN_POLL.includes(_perfil.rol)?`<button onclick="cerrarEnc(${enc.id})" class="btn btn-sm btn-danger-soft ms-auto" style="font-size:.72rem;padding:2px 9px"><i class="fa-solid fa-xmark me-1"></i>Cerrar</button>`:''}
+          </div>
+          <div class="enc-body">
+            ${yaVote||!enc.activa
+              ?opts.map(o=>{
+                const n=votMap[o.id]||0;
+                const pct=totV>0?Math.round(n/totV*100):0;
+                const mine=(misV[enc.id]||[]).includes(o.id);
+                return `<div class="mb-2">
+                  <div class="d-flex jc-between" style="font-size:.83rem;margin-bottom:3px">
+                    <span>${mine?'<b>✓ ':''} ${esc(o.texto)} ${mine?'</b>':''}</span>
+                    <span style="color:var(--accent)">${pct}% <small style="color:var(--text-dim)">(${n})</small></span>
+                  </div>
+                  <div class="mini-bar"><div class="mini-bar-fill" style="width:${pct}%;${mine?'background:var(--accent)':''}"></div></div>
+                </div>`;}).join('')
+              :`<div class="d-flex flex-col gap-2 mb-3">
+                ${opts.map(o=>`<label class="enc-label">
+                  <input type="${enc.multiple?'checkbox':'radio'}" name="enc${enc.id}" value="${o.id}" style="accent-color:var(--accent)">
+                  <span>${esc(o.texto)}</span>
+                </label>`).join('')}
+                <button onclick="votar(${enc.id},${enc.multiple})" class="btn btn-intra btn-sm mt-1"><i class="fa-solid fa-check me-1"></i>Votar</button>
+              </div>`}
+            <div style="font-size:.71rem;color:var(--text-dim);margin-top:.5rem">
+              <i class="fa-solid fa-user me-1"></i>${esc(enc.perfiles?.nombre||'—')} · <i class="fa-solid fa-clock me-1 ms-1"></i>${fmtFecha(enc.created_at)}
+            </div>
+          </div>
+        </div>
+      </div>`;
+    }).join(''):`<div class="col-12"><div class="intra-card"><div class="card-body text-center py-5 text-muted">No hay encuestas.</div></div></div>`}
+    </div>
+  </div>`;
+}
+
+async function votar(encId, multiple) {
+  let opIds = [];
+  if (multiple) {
+    opIds = [...document.querySelectorAll(`[name="enc${encId}"]:checked`)].map(i=>parseInt(i.value));
+  } else {
+    const sel = document.querySelector(`[name="enc${encId}"]:checked`);
+    if (sel) opIds = [parseInt(sel.value)];
+  }
+  if (!opIds.length) { toast('Selecciona una opción','err'); return; }
+  const rows = opIds.map(opId => ({ encuesta_id:encId, opcion_id:opId, usuario_id:_perfil.id }));
+  const { error } = await sb.from('encuestas_votos').insert(rows);
+  if (error) { toast('Ya votaste o error al registrar','err'); return; }
+  toast('¡Voto registrado!','ok');
+  await cargar();
+}
+
+async function cerrarEnc(id) {
+  if (!confirm('¿Cerrar esta encuesta?')) return;
+  await sb.from('encuestas').update({ activa:false }).eq('id', id);
+  await cargar();
+}
+
+function mostrarFormulario() {
+  document.getElementById('encForm').innerHTML = `
+  <div class="intra-card mb-4">
+    <div class="card-header"><i class="fa-solid fa-plus"></i> Nueva Encuesta</div>
+    <div class="card-body">
+      <div class="mb-3"><label class="form-label">Pregunta *</label>
+        <input id="eTit" type="text" class="form-control" placeholder="¿Cuál es tu preferencia?"></div>
+      <label class="form-label">Opciones (mín. 2) *</label>
+      <div id="eOpts">
+        <input type="text" name="eopc" class="form-control mb-2" placeholder="Opción 1">
+        <input type="text" name="eopc" class="form-control mb-2" placeholder="Opción 2">
+      </div>
+      <button type="button" class="btn btn-intra-outline btn-sm mb-3"
+        onclick="const w=document.getElementById('eOpts');const n=w.querySelectorAll('[name=eopc]').length+1;const i=document.createElement('input');i.type='text';i.name='eopc';i.className='form-control mb-2';i.placeholder='Opción '+n;w.appendChild(i)">
+        <i class="fa-solid fa-plus me-1"></i>Agregar opción
+      </button>
+      <div class="d-flex gap-3 mb-3">
+        <label class="d-flex ai-center gap-2 cursor-pointer"><input type="checkbox" id="eAnon" style="accent-color:var(--accent)"> Anónima</label>
+        <label class="d-flex ai-center gap-2 cursor-pointer"><input type="checkbox" id="eMult" style="accent-color:var(--accent)"> Respuesta múltiple</label>
+      </div>
+      <button onclick="crearEnc()" class="btn btn-intra me-2"><i class="fa-solid fa-chart-bar me-1"></i>Publicar</button>
+      <button onclick="document.getElementById('encForm').innerHTML=''" class="btn btn-intra-outline">Cancelar</button>
+    </div>
+  </div>`;
+}
+
+async function crearEnc() {
+  const titulo = document.getElementById('eTit')?.value.trim();
+  const opts   = [...document.querySelectorAll('[name="eopc"]')].map(i=>i.value.trim()).filter(Boolean);
+  if (!titulo||opts.length<2) { toast('Título y al menos 2 opciones son requeridos','err'); return; }
+  const { data:enc, error } = await sb.from('encuestas').insert({
+    titulo, autor_id:_perfil.id,
+    anonima  : document.getElementById('eAnon')?.checked||false,
+    multiple : document.getElementById('eMult')?.checked||false,
+  }).select().single();
+  if (error) { toast(error.message,'err'); return; }
+  await sb.from('encuestas_opciones').insert(opts.map((t,i)=>({ encuesta_id:enc.id, texto:t, orden:i })));
+  toast('Encuesta publicada ✓','ok');
+  await cargar();
+}
+</script>
+</body>
+</html>
