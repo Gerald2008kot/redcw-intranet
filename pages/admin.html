@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="es" id="htmlRoot">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>IntraNet RedCW — Administración</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="app-wrap">
+  <nav class="app-nav" id="appNav"></nav>
+  <main id="app" style="flex:1;padding:1.4rem 0">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:200px;font-size:1.5rem;color:var(--accent)">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+    </div>
+  </main>
+</div>
+<div id="toasts"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="../config.js"></script>
+<script>
+'use strict';
+let _perfil;
+
+(async () => {
+  const ctx = await requireAuth();
+  if (!ctx) return;
+  _perfil = ctx.perfil;
+  if (!CAN_ADMIN.includes(_perfil.rol)) {
+    window.location.href = PAGES.dashboard;
+    return;
+  }
+  await renderNav(_perfil, 'admin');
+  await cargarUsuarios();
+  renderShell();
+})();
+
+let _usrs = [];
+
+async function cargarUsuarios() {
+  const { data } = await sb.from('perfiles').select('*').order('nombre');
+  _usrs = data || [];
+}
+
+function renderShell() {
+  document.getElementById('app').innerHTML = `
+  <div class="ctn px-3 fade-in">
+    <h4 class="fw-700 mb-4"><i class="fa-solid fa-shield-halved me-2 text-accent"></i>Administración</h4>
+    <div class="nav-tabs">
+      <button class="tab-btn on" id="tabUsuarios" onclick="cambiarTab('usuarios')">Usuarios</button>
+      <button class="tab-btn" id="tabAnuncios" onclick="cambiarTab('anuncios')">Anuncios</button>
+    </div>
+    <div id="panelUsuarios"></div>
+    <div id="panelAnuncios" style="display:none"></div>
+  </div>`;
+  renderUsuarios();
+}
+
+function cambiarTab(tab) {
+  document.getElementById('tabUsuarios').classList.toggle('on', tab==='usuarios');
+  document.getElementById('tabAnuncios').classList.toggle('on', tab==='anuncios');
+  document.getElementById('panelUsuarios').style.display = tab==='usuarios'?'block':'none';
+  document.getElementById('panelAnuncios').style.display = tab==='anuncios'?'block':'none';
+  if (tab==='anuncios') renderAnuncios();
+}
+
+function renderUsuarios() {
+  const panel = document.getElementById('panelUsuarios');
+  panel.innerHTML = `
+  <div class="d-flex ai-center jc-between mb-3 flex-wrap gap-2">
+    <span style="font-size:.85rem;color:var(--text-muted)">${_usrs.length} usuarios registrados</span>
+    <button class="btn btn-intra btn-sm" onclick="nuevoUsuario()"><i class="fa-solid fa-user-plus me-1"></i>Nuevo usuario</button>
+  </div>
+  <div class="intra-card">
+    <div class="table-responsive">
+      <table class="intra-table">
+        <thead><tr><th>Usuario</th><th>Rol</th><th>Depto.</th><th>Estado</th><th>Acciones</th></tr></thead>
+        <tbody>
+        ${_usrs.map(u=>`<tr>
+          <td>
+            <div class="d-flex ai-center gap-2">
+              <img src="${esc(avatarSrc(u.avatar_url,u.nombre,u.apellido))}" width="32" height="32" alt="" style="width:32px;height:32px;max-width:32px;max-height:32px;border-radius:50%;object-fit:cover">
+              <div>
+                <div style="font-weight:600;font-size:.84rem">${esc(u.nombre)} ${esc(u.apellido)}</div>
+              </div>
+            </div>
+          </td>
+          <td><span class="rol-badge rol-${esc(u.rol)}">${esc(u.rol)}</span></td>
+          <td style="font-size:.78rem">${esc(u.departamento||'—')}</td>
+          <td>
+            <span style="font-size:.71rem;padding:2px 8px;border-radius:20px;font-weight:700;${u.activo?'background:rgba(30,126,52,.12);color:#1e7e34':'background:rgba(192,57,43,.12);color:#c0392b'}">
+              ${u.activo?'Activo':'Inactivo'}
+            </span>
+          </td>
+          <td>
+            <div class="d-flex gap-1">
+              <button class="btn btn-sm btn-intra-outline" onclick="cambiarRol('${u.id}','${esc(u.rol)}','${esc(u.nombre+' '+u.apellido)}')"><i class="fa-solid fa-pen"></i></button>
+              ${u.id!==_perfil.id?`<button class="btn btn-sm btn-danger-soft" onclick="toggleUser('${u.id}',${u.activo},'${esc(u.nombre)}')"><i class="fa-solid fa-${u.activo?'ban':'circle-check'}"></i></button>`:''}
+            </div>
+          </td>
+        </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  </div>`;
+}
+
+async function cambiarRol(uid, rolAct, nombre) {
+  const nuevo = prompt(`Cambiar rol de ${nombre}\nRol actual: ${rolAct}\n\nNuevo rol (admin/editor/moderador/lector):`, rolAct);
+  if (!nuevo || nuevo === rolAct) return;
+  if (!['admin','editor','moderador','lector'].includes(nuevo)) { toast('Rol inválido','err'); return; }
+  const { error } = await sb.from('perfiles').update({ rol: nuevo }).eq('id', uid);
+  if (error) { toast(error.message,'err'); return; }
+  toast('Rol actualizado ✓','ok');
+  const u = _usrs.find(u=>u.id===uid);
+  if (u) u.rol = nuevo;
+  renderUsuarios();
+}
+
+async function toggleUser(uid, activo, nombre) {
+  const accion = activo ? 'desactivar' : 'activar';
+  if (!confirm(`¿${accion.charAt(0).toUpperCase()+accion.slice(1)} a ${nombre}?`)) return;
+  const { error } = await sb.from('perfiles').update({ activo: !activo }).eq('id', uid);
+  if (error) { toast(error.message,'err'); return; }
+  toast(`Usuario ${activo?'desactivado':'activado'} ✓`,'ok');
+  const u = _usrs.find(u=>u.id===uid);
+  if (u) u.activo = !activo;
+  renderUsuarios();
+}
+
+async function nuevoUsuario() {
+  const email    = prompt('Email del nuevo usuario:'); if(!email) return;
+  const pass     = prompt('Contraseña temporal (mín. 8 caracteres):'); if(!pass||pass.length<8){toast('Contraseña muy corta','err');return;}
+  const nombre   = prompt('Nombre:')   || 'Nuevo';
+  const apellido = prompt('Apellido:') || 'Usuario';
+  const rol      = prompt('Rol (admin/editor/moderador/lector):','lector') || 'lector';
+  if (!['admin','editor','moderador','lector'].includes(rol)) { toast('Rol inválido','err'); return; }
+
+  const { error } = await sb.auth.admin.createUser({
+    email, password:pass, email_confirm:true,
+    user_metadata:{ nombre, apellido, rol }
+  });
+  if (error) { toast(error.message,'err'); return; }
+  toast('Usuario creado ✓','ok');
+  await cargarUsuarios();
+  renderUsuarios();
+}
+
+// ── ANUNCIOS ─────────────────────────────────────────────────
+let _anuns = [];
+
+async function renderAnuncios() {
+  const { data } = await sb.from('anuncios').select('*,perfiles(nombre,apellido)')
+    .eq('activo',true).order('fijado',{ascending:false}).order('created_at',{ascending:false});
+  _anuns = data || [];
+
+  const panel = document.getElementById('panelAnuncios');
+  panel.innerHTML = `
+  <button class="btn btn-intra btn-sm mb-3" onclick="nuevoAnuncio()"><i class="fa-solid fa-plus me-1"></i>Nuevo anuncio</button>
+  <div id="listaAnun">
+    ${_anuns.length?_anuns.map(a=>`
+    <div class="intra-card mb-3">
+      <div class="card-header">
+        <span class="fw-600">${esc(a.titulo)}</span>
+        ${a.fijado?'<span style="font-size:.63rem;color:var(--warning);margin-left:.5rem"><i class="fa-solid fa-thumbtack me-1"></i>FIJADO</span>':''}
+        <div class="d-flex gap-1 ms-auto">
+          <button onclick="toggleFijar(${a.id},${a.fijado})" class="btn btn-sm btn-intra-outline" title="${a.fijado?'Desfijar':'Fijar'}"><i class="fa-solid fa-thumbtack"></i></button>
+          <button onclick="eliminarAnuncio(${a.id})" class="btn btn-sm btn-danger-soft"><i class="fa-solid fa-trash"></i></button>
+        </div>
+      </div>
+      <div class="card-body" style="font-size:.84rem;color:var(--text-muted)">${esc(a.contenido)}</div>
+    </div>`).join(''):'<p class="text-center text-muted py-4">Sin anuncios.</p>'}
+  </div>`;
+}
+
+async function nuevoAnuncio() {
+  const titulo    = prompt('Título del anuncio:'); if(!titulo) return;
+  const contenido = prompt('Contenido:'); if(!contenido) return;
+  const fijado    = confirm('¿Fijar en el dashboard?');
+  const { error } = await sb.from('anuncios').insert({ titulo, contenido, fijado, autor_id:_perfil.id });
+  if (error) { toast(error.message,'err'); return; }
+  toast('Anuncio publicado ✓','ok');
+  renderAnuncios();
+}
+
+async function toggleFijar(id, fijadoActual) {
+  const { error } = await sb.from('anuncios').update({ fijado: !fijadoActual }).eq('id', id);
+  if (error) { toast(error.message,'err'); return; }
+  renderAnuncios();
+}
+
+async function eliminarAnuncio(id) {
+  if (!confirm('¿Eliminar este anuncio?')) return;
+  const { error } = await sb.from('anuncios').update({ activo: false }).eq('id', id);
+  if (error) { toast(error.message,'err'); return; }
+  toast('Eliminado ✓','ok');
+  renderAnuncios();
+}
+</script>
+</body>
+</html>
