@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="es" id="htmlRoot">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>IntraNet RedCW — Llamadas</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700&display=swap" rel="stylesheet">
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css" rel="stylesheet">
+<link rel="stylesheet" href="../style.css">
+</head>
+<body>
+<div class="app-wrap">
+  <nav class="app-nav" id="appNav"></nav>
+  <main id="app" style="flex:1;padding:1.4rem 0">
+    <div style="display:flex;align-items:center;justify-content:center;min-height:200px;font-size:1.5rem;color:var(--accent)">
+      <i class="fa-solid fa-spinner fa-spin"></i>
+    </div>
+  </main>
+</div>
+<div id="toasts"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="../config.js"></script>
+<script>
+'use strict';
+let _perfil;
+
+(async () => {
+  const ctx = await requireAuth();
+  if (!ctx) return;
+  _perfil = ctx.perfil;
+  await renderNav(_perfil, 'llamadas');
+  await cargar();
+})();
+
+async function cargar() {
+  const [{ data:salas }, { data:misParts }] = await Promise.all([
+    sb.from('salas_voz').select('*,perfiles(nombre,apellido)').eq('activa',true).order('created_at',{ascending:false}).limit(20),
+    sb.from('salas_participantes').select('sala_id').eq('usuario_id',_perfil.id),
+  ]);
+  const misIds = new Set((misParts||[]).map(s=>s.sala_id));
+
+  document.getElementById('app').innerHTML = `
+  <div class="ctn px-3 fade-in">
+    <div class="d-flex ai-center jc-between mb-4 flex-wrap gap-2">
+      <h4 class="fw-700 mb-0"><i class="fa-solid fa-phone-volume me-2 text-accent"></i>Salas de Voz / Video</h4>
+      <button class="btn btn-intra btn-sm" onclick="crearSala()"><i class="fa-solid fa-plus me-1"></i>Nueva Sala</button>
+    </div>
+    <div class="alert alert-info mb-4">
+      <i class="fa-solid fa-circle-info me-2"></i>Las llamadas requieren <strong>HTTPS</strong>. Funciona automáticamente en Vercel.
+    </div>
+    <div class="row g4">
+    ${(salas||[]).length?(salas||[]).map(s=>`
+    <div class="col-lg-4 col-md-6 mb-3">
+      <div class="intra-card">
+        <div class="card-body">
+          <div class="d-flex ai-center gap-3 mb-3">
+            <div style="width:44px;height:44px;border-radius:10px;background:${s.tipo==='video'?'rgba(192,57,43,.1)':'var(--accent-soft)'};display:flex;align-items:center;justify-content:center;font-size:1.2rem;color:${s.tipo==='video'?'#c0392b':'var(--accent)'}">
+              <i class="fa-solid fa-${s.tipo==='video'?'video':'phone-volume'}"></i>
+            </div>
+            <div>
+              <div class="fw-600">${esc(s.nombre)}</div>
+              <div style="font-size:.74rem;color:var(--text-muted)">${s.tipo==='video'?'Videollamada':'Solo audio'}</div>
+              <div style="font-size:.7rem;color:var(--text-dim)">Por ${esc(s.perfiles?.nombre||'—')} · ${fmtHora(s.created_at)}</div>
+            </div>
+          </div>
+          <div class="d-flex gap-2">
+            <button onclick="entrarSala(${s.id},'${esc(s.nombre)}')" class="btn btn-intra btn-sm" style="flex:1">
+              <i class="fa-solid fa-${misIds.has(s.id)?'arrow-right-to-bracket':'phone'} me-1"></i>${misIds.has(s.id)?'Volver':'Unirse'}
+            </button>
+            ${CAN_ADMIN.includes(_perfil.rol)||s.creada_por===_perfil.id?`<button onclick="cerrarSala(${s.id})" class="btn btn-sm btn-danger-soft" title="Cerrar sala"><i class="fa-solid fa-phone-slash"></i></button>`:''}
+          </div>
+        </div>
+      </div>
+    </div>`).join(''):`<div class="col-12"><div class="intra-card"><div class="card-body text-center py-5 text-muted"><i class="fa-solid fa-phone-slash fa-2x d-block mb-2" style="color:var(--text-dim)"></i>No hay salas activas. ¡Crea la primera!</div></div></div>`}
+    </div>
+  </div>`;
+}
+
+async function crearSala() {
+  const nombre = prompt('Nombre de la sala:');
+  if (!nombre) return;
+  const tipo = confirm('¿Videollamada? (Cancelar = solo audio)') ? 'video' : 'audio';
+  const { data:sala, error } = await sb.from('salas_voz')
+    .insert({ nombre, tipo, creada_por:_perfil.id, activa:true })
+    .select().single();
+  if (error) { toast(error.message,'err'); return; }
+  // Invitar a todos
+  const { data:todos } = await sb.from('perfiles').select('id').eq('activo',true).neq('id',_perfil.id);
+  if (todos?.length) {
+    await sb.from('salas_invitaciones').insert(todos.map(u=>({ sala_id:sala.id, usuario_id:u.id })));
+  }
+  toast('Sala creada ✓','ok');
+  entrarSala(sala.id, sala.nombre);
+  await cargar();
+}
+
+async function entrarSala(id, nombre) {
+  await sb.from('salas_participantes').upsert({ sala_id:id, usuario_id:_perfil.id });
+  window.open(`/sala?id=${id}&nombre=${encodeURIComponent(nombre)}`, 'sala_'+id, 'width=900,height=700');
+}
+
+async function cerrarSala(id) {
+  if (!confirm('¿Cerrar esta sala? Todos los participantes serán desconectados.')) return;
+  await sb.from('salas_voz').update({ activa:false }).eq('id', id);
+  toast('Sala cerrada','ok');
+  await cargar();
+}
+</script>
+</body>
+</html>
