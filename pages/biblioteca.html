@@ -17,7 +17,10 @@
     </div>
   </main>
 </div>
+<!-- Visor modal -->
+<div id="visorContainer"></div>
 <div id="toasts"></div>
+
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
 <script src="../config.js"></script>
 <script>
@@ -32,6 +35,56 @@ let _perfil;
   await cargar();
 })();
 
+// ── Clasificadores ────────────────────────────────────────────
+const EXT_IMG   = new Set(['png','jpg','jpeg','gif','webp','bmp','svg']);
+const EXT_VIDEO = new Set(['mp4','webm','mov','avi','mkv']);
+const EXT_AUDIO = new Set(['mp3','wav','ogg','m4a','aac','flac']);
+const EXT_PDF   = new Set(['pdf']);
+const EXT_DOC   = new Set(['doc','docx','xls','xlsx','ppt','pptx','txt']);
+
+function tipoArchivo(ext) {
+  ext = (ext||'').toLowerCase();
+  if (EXT_IMG.has(ext))   return 'imagen';
+  if (EXT_VIDEO.has(ext)) return 'video';
+  if (EXT_AUDIO.has(ext)) return 'audio';
+  if (EXT_PDF.has(ext))   return 'pdf';
+  if (EXT_DOC.has(ext))   return 'doc';
+  return 'otro';
+}
+
+// ── Botón de acción principal según tipo ──────────────────────
+function btnAccion(f) {
+  const tipo = tipoArchivo(f.extension);
+  const url  = esc(f.url_publica);
+  const tit  = esc(f.titulo);
+  const ext  = esc(f.extension);
+
+  switch (tipo) {
+    case 'imagen':
+      return `<button class="btn btn-sm btn-intra" onclick="verImagen('${url}','${tit}')" title="Ver imagen">
+        <i class="fa-solid fa-eye me-1"></i>Ver
+      </button>`;
+    case 'video':
+      return `<button class="btn btn-sm btn-intra" onclick="verVideo('${url}','${tit}')" title="Reproducir video">
+        <i class="fa-solid fa-play me-1"></i>Reproducir
+      </button>`;
+    case 'audio':
+      return `<button class="btn btn-sm" onclick="mpPlayUrl('${url}','${tit}','${ext}')"
+        style="background:rgba(125,60,255,.12);color:#7d3cff;border:1px solid rgba(125,60,255,.3)" title="Reproducir audio">
+        <i class="fa-solid fa-play me-1"></i>Reproducir
+      </button>`;
+    case 'pdf':
+      return `<button class="btn btn-sm btn-intra-outline" onclick="verPDF('${url}','${tit}')" title="Ver PDF">
+        <i class="fa-solid fa-file-pdf me-1"></i>Ver PDF
+      </button>`;
+    default:
+      return `<a href="${url}" target="_blank" class="btn btn-sm btn-intra-outline" title="Descargar">
+        <i class="fa-solid fa-download me-1"></i>Descargar
+      </a>`;
+  }
+}
+
+// ── Carga y renderiza la página ───────────────────────────────
 async function cargar() {
   const p    = new URLSearchParams(location.search);
   const carp = p.get('carpeta') || '';
@@ -56,7 +109,6 @@ async function cargar() {
     ['comprimidos','fa-file-zipper','Comprimidos',cnt.comprimidos||0],
     ['otros','fa-folder','Otros',cnt.otros||0],
   ];
-
   const urlTab = v => `${PAGES.biblioteca}${v?'?carpeta='+v:''}`;
 
   document.getElementById('app').innerHTML = `
@@ -66,20 +118,28 @@ async function cargar() {
       ${CAN_UPLOAD.includes(_perfil.rol)?`<a href="${PAGES.upload}" class="btn btn-intra btn-sm"><i class="fa-solid fa-upload me-1"></i>Subir</a>`:''}
     </div>
     <div class="ctabs">
-      ${tabs.map(([v,ico,l,n])=>`<a href="${urlTab(v)}" class="ctab ${carp===v?'on':''}"><i class="fa-solid ${ico} me-1"></i>${l} <span class="ctab-n">${n}</span></a>`).join('')}
+      ${tabs.map(([v,ico,l,n])=>`
+      <a href="${urlTab(v)}" class="ctab ${carp===v?'on':''}">
+        <i class="fa-solid ${ico} me-1"></i>${l} <span class="ctab-n">${n}</span>
+      </a>`).join('')}
     </div>
     <div class="filter-bar mb-3">
       <div class="d-flex gap-2">
-        <input id="bSearch" type="text" class="form-control" placeholder="Buscar por título..." value="${esc(bus)}">
+        <input id="bSearch" type="text" class="form-control" placeholder="Buscar por título…" value="${esc(bus)}">
         <button class="btn btn-intra px-3" onclick="buscar()"><i class="fa-solid fa-search"></i></button>
       </div>
     </div>
     <div class="intra-card">
       <div class="table-responsive">
         <table class="intra-table">
-          <thead><tr><th></th><th>Título</th><th>Tipo</th><th>Tamaño</th><th>Subido por</th><th>Fecha</th><th>Acciones</th></tr></thead>
+          <thead>
+            <tr>
+              <th></th><th>Título</th><th>Tipo</th><th>Tamaño</th>
+              <th>Subido por</th><th>Fecha</th><th>Acciones</th>
+            </tr>
+          </thead>
           <tbody>
-          ${(arch||[]).length?(arch||[]).map(f=>`<tr>
+          ${(arch||[]).length ? (arch||[]).map(f => `<tr>
             <td>${extIcon(f.extension)}</td>
             <td style="font-weight:600;font-size:.84rem">${esc(f.titulo)}</td>
             <td><span class="carpeta-badge c-${esc(f.carpeta)}">${esc(f.carpeta)}</span></td>
@@ -87,12 +147,22 @@ async function cargar() {
             <td style="font-size:.78rem">${esc(f.perfiles?.nombre||'—')} ${esc(f.perfiles?.apellido||'')}</td>
             <td style="font-size:.73rem;color:var(--text-muted)">${fmtFecha(f.created_at)}</td>
             <td>
-              <div class="d-flex gap-1">
-                <a href="${esc(f.url_publica)}" target="_blank" class="btn btn-sm btn-intra-outline" title="Abrir/Descargar"><i class="fa-solid fa-download"></i></a>
-                ${CAN_ADMIN.includes(_perfil.rol)?`<button class="btn btn-sm btn-danger-soft" onclick="eliminar(${f.id})" title="Eliminar"><i class="fa-solid fa-trash"></i></button>`:''}
+              <div class="d-flex gap-1 flex-wrap">
+                ${btnAccion(f)}
+                <a href="${esc(f.url_publica)}" target="_blank" download
+                  class="btn btn-sm btn-intra-outline" title="Descargar">
+                  <i class="fa-solid fa-download"></i>
+                </a>
+                ${CAN_ADMIN.includes(_perfil.rol)?`
+                <button class="btn btn-sm btn-danger-soft" onclick="eliminar(${f.id})" title="Eliminar">
+                  <i class="fa-solid fa-trash"></i>
+                </button>`:''}
               </div>
             </td>
-          </tr>`).join(''):`<tr><td colspan="7" class="text-center py-5 text-muted"><i class="fa-solid fa-folder-open fa-2x d-block mb-2" style="color:var(--text-dim)"></i>No hay archivos${bus?' que coincidan':''}.</td></tr>`}
+          </tr>`).join('') : `<tr><td colspan="7" class="text-center py-5 text-muted">
+            <i class="fa-solid fa-folder-open fa-2x d-block mb-2" style="color:var(--text-dim)"></i>
+            No hay archivos${bus?' que coincidan':''}.
+          </td></tr>`}
           </tbody>
         </table>
       </div>
@@ -106,20 +176,88 @@ function buscar() {
   const p    = new URLSearchParams(location.search);
   const carp = p.get('carpeta') || '';
   const val  = document.getElementById('bSearch').value.trim();
-  let url = PAGES.biblioteca;
   const params = [];
   if (carp) params.push('carpeta='+carp);
   if (val)  params.push('buscar='+encodeURIComponent(val));
-  if (params.length) url += '?' + params.join('&');
-  window.location.href = url;
+  window.location.href = PAGES.biblioteca + (params.length ? '?'+params.join('&') : '');
 }
 
 async function eliminar(id) {
   if (!confirm('¿Eliminar este archivo?')) return;
-  const { error } = await sb.from('archivos').update({ activo: false }).eq('id', id);
-  if (error) { toast(error.message, 'err'); return; }
-  toast('Archivo eliminado', 'ok');
+  const { error } = await sb.from('archivos').update({ activo:false }).eq('id', id);
+  if (error) { toast(error.message,'err'); return; }
+  toast('Archivo eliminado','ok');
   await cargar();
+}
+
+// ══════════════════════════════════════════════════════════════
+//  VISORES
+// ══════════════════════════════════════════════════════════════
+function cerrarVisor() {
+  document.getElementById('visorContainer').innerHTML = '';
+}
+
+// Cierra con tecla Escape
+document.addEventListener('keydown', e => {
+  if (e.key === 'Escape') cerrarVisor();
+});
+
+// ── Ver imagen ────────────────────────────────────────────────
+function verImagen(url, titulo) {
+  document.getElementById('visorContainer').innerHTML = `
+  <div class="visor-overlay" onclick="if(event.target===this)cerrarVisor()">
+    <div class="visor-box">
+      <button class="visor-close" onclick="cerrarVisor()" title="Cerrar (Esc)"><i class="fa-solid fa-xmark"></i></button>
+      <img class="visor-img" src="${url}" alt="${titulo}"
+        onerror="this.src='';this.parentElement.innerHTML='<p style=color:#fff>No se pudo cargar la imagen.</p>'">
+      <div class="visor-caption">${titulo}</div>
+    </div>
+  </div>`;
+}
+
+// ── Reproducir video ──────────────────────────────────────────
+function verVideo(url, titulo) {
+  document.getElementById('visorContainer').innerHTML = `
+  <div class="visor-overlay" onclick="if(event.target===this)cerrarVisor()">
+    <div class="visor-box" style="max-width:90vw">
+      <button class="visor-close" onclick="cerrarVisor()" title="Cerrar (Esc)"><i class="fa-solid fa-xmark"></i></button>
+      <video controls autoplay
+        style="max-width:88vw;max-height:80vh;border-radius:8px;box-shadow:0 8px 40px rgba(0,0,0,.6);background:#000"
+        onerror="this.parentElement.innerHTML='<p style=color:#fff>Formato no soportado. <a href=${url} target=_blank style=color:#4a9fff>Descargar</a></p>'">
+        <source src="${url}">
+        Tu navegador no soporta este video.
+      </video>
+      <div class="visor-caption">${titulo}</div>
+    </div>
+  </div>`;
+}
+
+// ── Ver PDF (embed o link de fallback) ────────────────────────
+function verPDF(url, titulo) {
+  document.getElementById('visorContainer').innerHTML = `
+  <div class="visor-overlay" onclick="if(event.target===this)cerrarVisor()">
+    <div class="visor-box" style="width:92vw;max-width:960px">
+      <button class="visor-close" onclick="cerrarVisor()" title="Cerrar (Esc)"><i class="fa-solid fa-xmark"></i></button>
+      <div style="width:100%;background:#fff;border-radius:8px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,.5)">
+        <div style="display:flex;align-items:center;gap:.6rem;padding:.6rem 1rem;background:#1a2f52">
+          <i class="fa-solid fa-file-pdf" style="color:#e74c3c"></i>
+          <span style="color:#dce8f5;font-size:.85rem;font-weight:600;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${titulo}</span>
+          <a href="${url}" target="_blank" style="color:#7a9ab8;font-size:.78rem;text-decoration:none">
+            <i class="fa-solid fa-arrow-up-right-from-square me-1"></i>Abrir en nueva pestaña
+          </a>
+        </div>
+        <iframe src="${url}" style="width:100%;height:75vh;border:none;display:block"
+          onerror="this.style.display='none';document.getElementById('pdfFallback').style.display='block'">
+        </iframe>
+        <div id="pdfFallback" style="display:none;padding:2rem;text-align:center;color:#555">
+          <i class="fa-solid fa-file-pdf" style="font-size:2rem;color:#e74c3c;display:block;margin-bottom:.5rem"></i>
+          No se puede mostrar el PDF en este navegador.<br>
+          <a href="${url}" target="_blank" style="color:var(--primary)">Descárgalo aquí</a>
+        </div>
+      </div>
+      <div class="visor-caption">${titulo}</div>
+    </div>
+  </div>`;
 }
 </script>
 </body>
