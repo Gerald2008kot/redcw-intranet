@@ -14,7 +14,7 @@ const CLD = {
 
 // Páginas internas (rutas reales en el servidor)
 const PAGES = {
-  login     : 'login.html',
+  login     : 'pages/login.html',
   dashboard : 'pages/dashboard.html',
   chat      : 'chat.html',
   biblioteca: 'biblioteca.html',
