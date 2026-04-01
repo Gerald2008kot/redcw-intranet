@@ -12,7 +12,8 @@
   <div style="font-size:.9rem">Redirigiendo...</div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
-<script src="config.js"></script>
+
+<script src="config-dashboard.js"></script>
 <script>
 sb.auth.getSession().then(({ data: { session } }) => {
   window.location.replace(session ? PAGES.dashboard : PAGES.login);
