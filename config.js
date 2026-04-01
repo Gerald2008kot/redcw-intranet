@@ -391,6 +391,8 @@ async function renderNav(perfil, paginaActual) {
     { p:'biblioteca', href:PAGES.biblioteca,  icon:'fa-folder-open',  label:'Biblioteca' },
     { p:'encuestas',  href:PAGES.encuestas,   icon:'fa-chart-bar',    label:'Encuestas' },
     { p:'llamadas',   href:PAGES.llamadas,    icon:'fa-phone-volume', label:'Llamadas' },
+    { p:'RedCW',   href:"https://redcw.vercel.app/pages-control.html",    icon:'fa-solid fa-building-columns', label:'RedCW' },
+ 
     ...(CAN_UPLOAD.includes(perfil.rol) ? [{ p:'upload', href:PAGES.upload, icon:'fa-cloud-arrow-up', label:'Subir' }] : []),
     ...(CAN_ADMIN.includes(perfil.rol)  ? [{ p:'admin',  href:PAGES.admin,  icon:'fa-shield-halved', label:'Admin' }] : []),
   ];
