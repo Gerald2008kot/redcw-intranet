@@ -7,7 +7,6 @@ const ASSETS_TO_CACHE = [
   "/index.html",
   "/style.css",
   "/manifest.json",
-  "/vercel.json",
   "/config.js",
   "/config-dashboard.js",
   "/config-login.js",
