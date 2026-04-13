@@ -20,7 +20,7 @@ const ASSETS_TO_CACHE = [
   "/pages/login.html",
   "/pages/perfil.html",
   "/pages/upload.html",
-  "//icons/intranet-192.png",
+  "/icons/intranet-192.png",
   "/icons/intranet-512.png",
 
 ];
