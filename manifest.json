@@ -2,7 +2,7 @@
   "name": "IntraNet",
   "short_name": "IntraNet",
   "description": "IntraNet Privada",
-  "start_url": "/",
+  "start_url": "/pages/dashboard.html",
   "scope": "/",
   "display": "standalone",
   "background_color": "#05070a",
